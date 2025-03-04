@@ -111,67 +111,14 @@ function Test-BackupPath {
     
     try {
         if (!(Test-Path $Path)) {
-            New-Item -ItemType Directory -Path $Path -Force
+            New-Item -ItemType Directory -Path $Path -Force | Out-Null
             Write-Log "Created backup directory: $Path" "INFO"
         }
-        
-        # Write permission check
-        $testFile = Join-Path $Path "test_$(Get-Random).tmp"
-        New-Item -ItemType File -Path $testFile -Force | Out-Null
-        Remove-Item -Path $testFile -Force
         
         return $true
     }
     catch {
         Write-Log "Failed to access or create backup path $Path : $_" "ERROR"
-        return $false
-    }
-}
-
-# Free space check function
-function Test-FreeSpace {
-    param(
-        [string]$Path,
-        [int64]$RequiredSpaceGB = 10
-    )
-    
-    try {
-        $share = New-Object System.Uri($Path)
-        $root = "\\${share.Host}\${share.Segments[1]}".TrimEnd('\')
-        
-        # Get disk information directly
-        $driveInfo = Get-WmiObject -Class Win32_LogicalDisk -Filter "DriveType=3" | 
-                   Where-Object { $_.DeviceID -eq $Path.Substring(0,2) -or $_.ProviderName -eq $root }
-        
-        if ($driveInfo) {
-            $freeSpaceGB = [math]::Round($driveInfo.FreeSpace / 1GB, 2)
-            
-            if ($freeSpaceGB -lt $RequiredSpaceGB) {
-                Write-Log "Insufficient free space on $Path. Available: $($freeSpaceGB) GB, Required: $RequiredSpaceGB GB" "ERROR"
-                return $false
-            }
-            
-            Write-Log "Sufficient free space available on $Path - $($freeSpaceGB) GB" "INFO"
-            return $true
-        } else {
-            # If we can't get disk info, try to create a large test file
-            $testPath = Join-Path $Path "test_space_$(Get-Random).tmp"
-            
-            try {
-                $buffer = New-Object byte[] (100MB)
-                [System.IO.File]::WriteAllBytes($testPath, $buffer)
-                Remove-Item -Path $testPath -Force
-                Write-Log "Space check completed using file test method" "INFO"
-                return $true
-            }
-            catch {
-                Write-Log "Failed to verify free space using file test: $_" "ERROR"
-                return $false
-            }
-        }
-    }
-    catch {
-        Write-Log "Failed to check free space on $Path : $_" "ERROR"
         return $false
     }
 }
@@ -314,11 +261,6 @@ try {
         throw "Failed to access or create backup paths"
     }
     
-    # Check free space
-    if (-not (Test-FreeSpace -Path $BackupBasePath -RequiredSpaceGB 10)) {
-        throw "Insufficient free space for backup"
-    }
-    
     # Determine backup type
     $currentDate = Get-Date
     $isMonthlyBackupDay = ($currentDate.Day -eq 1) -or ($currentDate.Day -eq 15)
@@ -347,6 +289,3 @@ catch {
     Send-NotificationEmail -Subject "PostgreSQL Backup - Critical Error" -Body "Critical error during backup process: $_"
     exit 1
 }
-
-
-
